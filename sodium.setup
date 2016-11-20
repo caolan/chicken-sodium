@@ -1,0 +1,7 @@
+(compile -O2 -d1 -s "sodium.scm" -Iinclude -lsodium -J)
+(compile -O2 -d0 -s "sodium.import.scm")
+
+(install-extension
+  'sodium
+  '("sodium.so" "sodium.import.so")
+  '((version "1.0.0")))

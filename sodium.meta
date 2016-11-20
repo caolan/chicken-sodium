@@ -1,0 +1,4 @@
+((synopsis "Bindings to the Sodium crypto library (libsodium)")
+ (author "Caolan McMahon")
+ (category crypto)
+ (license "ISC"))

@@ -116,11 +116,17 @@
     (c-pointer unsigned-char)
     size_t))
 
-;; TODO: note in docs this uses malloc an not sodium_malloc!
+;; TODO: note in docs this uses malloc and not sodium_malloc!
+;; NOTE: crypto_generichash_statebytes() added in libsodium 1.0.3 and
+;;       Debian Jessie ships with 1.0.0
 (define (make-crypto_generichash_state)
   ((foreign-lambda* c-pointer ()
      "crypto_generichash_state *state = malloc(
-          crypto_generichash_statebytes()
+          #ifdef crypto_generichash_statebytes
+            crypto_generichash_statebytes()
+          #else
+            sizeof(crypto_generichash_state)
+          #endif
       );
       C_return(state);")))
 

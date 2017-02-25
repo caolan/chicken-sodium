@@ -2,7 +2,9 @@
 
 ;; exports
 (sodium-init
+ constant-time-blob=?
  bin->hex
+ hex->bin
  generic-hash-bytes
  generic-hash-bytes-min
  generic-hash-bytes-max
@@ -27,7 +29,7 @@
 (import chicken scheme foreign)
 (foreign-declare "#include <sodium.h>")
 
-(use lolevel)
+(use lolevel srfi-4)
 
 
 (define (expect-zero name output status)
@@ -35,10 +37,17 @@
       output
       (abort (sprintf "~A returned ~A" name status))))
 
-
 (define sodium-init
   (foreign-lambda int "sodium_init"))
 
+(define sodium_memcmp
+  (foreign-lambda int "sodium_memcmp"
+    (const c-pointer)
+    (const c-pointer)
+    size_t))
+
+(define (constant-time-blob=? a b len)
+  (fx= 0 (sodium_memcmp (location a) (location b) len)))
 
 (define sodium_bin2hex
   (foreign-lambda c-string "sodium_bin2hex"
@@ -48,14 +57,42 @@
 		  (const size_t)))
 
 (define (bin->hex bin)
-  (if (= (string-length bin) 0)
+  (if (= (blob-size bin) 0)
     ""
-    (let ((tmp (make-string (+ (* 2 (string-length bin)) 1))))
-      (sodium_bin2hex (location tmp)
-                      (string-length tmp)
-                      (location bin)
-                      (string-length bin)))))
+    (let* ((tmp (make-u8vector (+ (* 2 (blob-size bin)) 1)))
+	   (result (sodium_bin2hex (location tmp)
+				   (u8vector-length tmp)
+				   (location bin)
+				   (blob-size bin))))
+      (or result
+	  (abort "hex buffer overflow")))))
 
+(define sodium_hex2bin
+  (foreign-lambda int "sodium_hex2bin"
+		  (c-pointer char)
+		  (const size_t)
+		  (const (c-pointer char))
+		  (const size_t)
+		  c-string
+		  (c-pointer size_t)
+		  (const (c-pointer (c-pointer char)))))
+
+(define (hex->bin hex #!optional ignore)
+  (if (= (string-length hex) 0)
+    #${}
+    (let-location ((binlen size_t)
+		   (hexend (c-pointer char)))
+      (let* ((tmp (make-u8vector (+ (fx/ (string-length hex) 2) 1)))
+	     (code (sodium_hex2bin (location tmp)
+				   (u8vector-length tmp)
+				   (location hex)
+				   (string-length hex)
+				   ignore
+				   (location binlen)
+				   (location hexend))))
+	(if (fx= code 0)
+	    (u8vector->blob/shared (subu8vector tmp 0 binlen))
+	    (abort "Buffer too small to store parsed result"))))))
 
 (define crypto_generichash
   (foreign-lambda int "crypto_generichash"
@@ -84,15 +121,17 @@
 (define generic-hash-key-bytes-max
   (foreign-value "crypto_generichash_KEYBYTES_MAX" int))
 
-(define (generic-hash data #!optional (bytes generic-hash-bytes))
-  (assert (>= bytes generic-hash-bytes-min))
-  (assert (<= bytes generic-hash-bytes-max))
-  (let* ((hash (make-string bytes))
-	 (status (crypto_generichash (location hash) bytes
-				     (and (> (string-length data) 0)
-                  (location data))
-             (string-length data)
-				     #f 0)))
+(define (generic-hash data #!key (size generic-hash-bytes) key)
+  (assert (>= size generic-hash-bytes-min))
+  (assert (<= size generic-hash-bytes-max))
+  (let* ((hash (make-blob size))
+	 (status (crypto_generichash
+		  (location hash)
+		  size
+		  (and (> (blob-size data) 0) (location data))
+		  (blob-size data)
+		  (and key (location key))
+		  (if key (blob-size key) 0))))
     (if (not (= status 0))
 	(abort (sprintf "crypto_generichash returned ~A" status))
 	hash)))
@@ -135,21 +174,25 @@
                bytes
                done)
 
-(define (generic-hash-init #!optional (bytes generic-hash-bytes))
-  (assert (>= bytes generic-hash-bytes-min))
-  (assert (<= bytes generic-hash-bytes-max))
+(define (generic-hash-init #!key (size generic-hash-bytes) key)
+  (assert (>= size generic-hash-bytes-min))
+  (assert (<= size generic-hash-bytes-max))
   (let* ((s (make-crypto_generichash_state))
-         (status (crypto_generichash_init s #f 0 bytes)))
+         (status (crypto_generichash_init
+		  s
+		  (and key (location key))
+		  (if key (blob-size key) 0)
+		  size)))
     (if (not (= status 0))
       (abort (sprintf "crypto_generichash_init returned ~A" status))
-      (make-generic-hash-state s bytes #f))))
+      (make-generic-hash-state s size #f))))
 
 (define (generic-hash-update state data)
   (assert (not (generic-hash-state-done state)))
   (let ((status (crypto_generichash_update (generic-hash-state-pointer state)
-                                           (and (> (string-length data) 0)
+                                           (and (> (blob-size data) 0)
                                                 (location data))
-                                           (string-length data))))
+                                           (blob-size data))))
     (if (not (= status 0))
       (abort (sprintf "crypto_generichash_update returned ~A" status))
       status)))
@@ -157,10 +200,10 @@
 
 (define (generic-hash-final state)
   (assert (not (generic-hash-state-done state)))
-  (let* ((hash (make-string (generic-hash-state-bytes state)))
+  (let* ((hash (make-blob (generic-hash-state-bytes state)))
          (status (crypto_generichash_final (generic-hash-state-pointer state)
                                            (location hash)
-                                           (string-length hash))))
+                                           (blob-size hash))))
     (generic-hash-state-done-set! state #t)
     (if (not (= status 0))
       (abort (sprintf "crypto_generichash_final returned ~A" status))
@@ -199,7 +242,6 @@
 	(abort (sprintf "crypto_sign_ed25519_sk_to_pk returned ~A" status))
 	public-key)))
 
-
 (define crypto_sign_detached*
   (foreign-lambda* int
     (((c-pointer unsigned-char) sig)
@@ -220,17 +262,16 @@
 
 (define (sign-detached data secret-key)
   (let-location ((siglen unsigned-integer64))
-    (let* ((sig (make-string sign-bytes))
+    (let* ((sig (make-blob sign-bytes))
 	   (status (crypto_sign_detached*
 		    (location sig)
 		    (location siglen)
 		    (location data)
-		    (string-length data)
+		    (blob-size data)
 		    (location secret-key))))
       (if (not (= status 0))
 	  (abort (sprintf "crypto_sign_detached returned ~A" status))
 	  sig))))
-
 
 (define crypto_sign_verify_detached
   (foreign-lambda int "crypto_sign_verify_detached"
@@ -243,9 +284,8 @@
   (= 0 (crypto_sign_verify_detached
 	(location signature)
 	(location data)
-	(string-length data)
+	(blob-size data)
 	(location public-key))))
-
 
 (define scalarmult-curve25519-bytes
   (foreign-value "crypto_scalarmult_curve25519_BYTES" int))

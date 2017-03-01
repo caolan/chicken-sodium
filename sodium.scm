@@ -1,7 +1,8 @@
 (module sodium
 
 ;; exports
-(sodium-init
+(sodium-version-string
+ sodium-init
  constant-time-blob=?
  bin->hex
  hex->bin
@@ -31,6 +32,8 @@
 
 (use lolevel srfi-4)
 
+(define sodium-version-string
+  (foreign-lambda c-string "sodium_version_string"))
 
 (define (expect-zero name output status)
   (if (= status 0)

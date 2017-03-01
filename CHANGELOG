@@ -1,0 +1,5 @@
+0.2.0
+    - added (sodium-version-string)
+    - fixed test suite for libsodium < 1.0.11
+0.1.0
+    - first release

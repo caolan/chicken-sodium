@@ -15,6 +15,10 @@
 (define sodium-version-list
   (map string->number (string-split (sodium-version-string) ".")))
 
+(define (sodium-version>=? major minor patch)
+  (every (cut apply >= <>)
+	 (zip sodium-version-list (list major minor patch))))
+
 (test-group "generic-hash"
   (test #${b8fe9f7f6255a6fa08f668ab632a8d081ad87983c77cd274e48ce450f0b349fd}
 	(generic-hash (string->blob "foo")))
@@ -23,7 +27,7 @@
   ;; laptop with libsodium 1.0.11 installed. I'm not sure which
   ;; version introduced this change as there doesn't appear to be an
   ;; entry in the changelog. Disabling test for versions < 1.0.11 for now.
-  (when (every (cut apply >= <>) (zip sodium-version-list '(1 0 11)))
+  (when (sodium-version>=? 1 0 11)
     (test #${0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8}
 	  (generic-hash (string->blob ""))))
   (test #${983ceba2afea8694cc933336b27b907f90c53a88}

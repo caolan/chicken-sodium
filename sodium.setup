@@ -4,4 +4,4 @@
 (install-extension
   'sodium
   '("sodium.so" "sodium.import.so")
-  '((version "1.0.0")))
+  '((version "0.3.0")))

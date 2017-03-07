@@ -1,3 +1,7 @@
+0.3.0
+    - added random-byte
+    - added random-uniform
+    - added random-blob
 0.2.0
     - added (sodium-version-string)
     - fixed test suite for libsodium < 1.0.11

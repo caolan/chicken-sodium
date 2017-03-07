@@ -70,4 +70,23 @@
 			 data
 			 public-key))))))
 
+(test-group "random-byte"
+  (let ((b (random-byte)))
+    (test-assert (integer? b))
+    (test-assert (>= b 0))
+    (test-assert (< b #xffffffff))))
+
+(test-group "random-uniform"
+  (let* ((max 100)
+	 (b (random-uniform max)))
+    (test-assert (integer? b))
+    (test-assert (>= b 0))
+    (test-assert (< b max))))
+
+(test-group "random-blob"
+  (let* ((size 20)
+	 (b (random-blob size)))
+    (test-assert (blob? b))
+    (test size (blob-size b))))
+
 (test-exit)

@@ -25,7 +25,10 @@
  sign-verify-detached
  scalarmult-curve25519-bytes
  sign-ed25519-public-key->curve25519
- sign-ed25519-secret-key->curve25519)
+ sign-ed25519-secret-key->curve25519
+ random-byte
+ random-uniform
+ random-blob)
 
 (import chicken scheme foreign)
 (foreign-declare "#include <sodium.h>")
@@ -320,5 +323,21 @@
     (if (not (= status 0))
 	(abort (sprintf "crypto_sign_ed25519_sk_to_curve25519 returned ~A" status))
 	curve25519-secret-key)))
+
+(define random-byte
+  (foreign-lambda int "randombytes_random"))
+
+(define random-uniform
+  (foreign-lambda int "randombytes_uniform" (const int)))
+
+(define randombytes_buf
+  (foreign-lambda void "randombytes_buf"
+    c-pointer
+    (const size_t)))
+
+(define (random-blob n)
+  (let ((data (make-blob n)))
+    (randombytes_buf (location data) n)
+    data))
 
 )
